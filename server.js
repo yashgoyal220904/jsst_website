@@ -1,11 +1,16 @@
 import express from 'express';
 import cors from 'cors';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
+import { createClient } from '@supabase/supabase-js';
 import { products as initialProducts } from './src/data/products.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import WebSocket from 'ws';
+
+// Polyfill WebSocket for Node.js environments without native support (e.g. Node 20)
+if (typeof global.WebSocket === 'undefined') {
+  global.WebSocket = WebSocket;
+}
 
 // Load local env file if it exists
 if (fs.existsSync('.env')) {
@@ -40,223 +45,105 @@ const razorpay = new Razorpay({
 app.use(cors());
 app.use(express.json());
 
-// Initialize SQLite database connection
-let db;
+// Initialize Supabase client connection
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
+
+if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('your-project-id')) {
+  console.warn('WARNING: Supabase URL or Anon Key is not configured correctly in .env.');
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
 async function initDb() {
-  db = await open({
-    filename: process.env.DATABASE_PATH || './database.sqlite',
-    driver: sqlite3.Database
-  });
+  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('your-project-id')) {
+    console.warn('WARNING: Skipping Supabase initialization because credentials are not set.');
+    return;
+  }
 
-  // Create products table
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS products (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      brand TEXT NOT NULL,
-      category TEXT NOT NULL,
-      price REAL NOT NULL,
-      mrp REAL NOT NULL,
-      rating REAL DEFAULT 4.5,
-      reviewsCount INTEGER DEFAULT 100,
-      imageColor TEXT NOT NULL,
-      display TEXT NOT NULL,
-      processor TEXT NOT NULL,
-      ram TEXT NOT NULL,
-      storage TEXT NOT NULL,
-      backCamera TEXT NOT NULL,
-      frontCamera TEXT NOT NULL,
-      battery TEXT NOT NULL,
-      os TEXT NOT NULL,
-      network TEXT NOT NULL,
-      weight TEXT NOT NULL,
-      features TEXT NOT NULL,
-      inStock INTEGER NOT NULL DEFAULT 1
-    )
-  `);
-
-  // Create coupons table
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS coupons (
-      code TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      value REAL NOT NULL,
-      minSubtotal REAL NOT NULL DEFAULT 0,
-      description TEXT NOT NULL
-    )
-  `);
-
-  // Create bank_offers table
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS bank_offers (
-      id TEXT PRIMARY KEY,
-      bank TEXT NOT NULL,
-      desc TEXT NOT NULL,
-      type TEXT NOT NULL,
-      value REAL NOT NULL,
-      maxDiscount REAL
-    )
-  `);
-
-  // Create flash_deal table
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS flash_deal (
-      id TEXT PRIMARY KEY,
-      product_id TEXT NOT NULL,
-      discount REAL NOT NULL,
-      description TEXT NOT NULL
-    )
-  `);
-
-  // Create queries table
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS queries (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      date TEXT NOT NULL,
-      contactName TEXT NOT NULL,
-      phone TEXT NOT NULL,
-      email TEXT NOT NULL,
-      subject TEXT,
-      message TEXT,
-      companyName TEXT,
-      gstNumber TEXT,
-      deliveryDate TEXT,
-      comments TEXT,
-      items TEXT,
-      totalVolume INTEGER DEFAULT 0,
-      netTotal REAL DEFAULT 0.0,
-      status TEXT NOT NULL DEFAULT 'Pending'
-    )
-  `);
-
-  // Create users table
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      phone TEXT NOT NULL,
-      password TEXT NOT NULL,
-      address TEXT,
-      pincode TEXT
-    )
-  `);
-
-  // Create orders table
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS orders (
-      id TEXT PRIMARY KEY,
-      date TEXT NOT NULL,
-      items TEXT NOT NULL,
-      subtotal REAL NOT NULL,
-      couponDiscount REAL NOT NULL DEFAULT 0,
-      bankDiscount REAL NOT NULL DEFAULT 0,
-      total REAL NOT NULL,
-      customerName TEXT NOT NULL,
-      customerPhone TEXT NOT NULL,
-      customerEmail TEXT,
-      customerAddress TEXT NOT NULL,
-      customerPincode TEXT NOT NULL,
-      paymentMethod TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'Placed'
-    )
-  `);
-
-  // Ensure status column exists in orders table (for existing databases)
   try {
-    await db.exec(`ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'Placed'`);
+    // 1. Seed products if empty
+    const { data: products, error: prodError } = await supabase.from('products').select('id').limit(1);
+    if (prodError) {
+      throw new Error(`Failed to query products table: ${prodError.message}. Make sure you have created the tables in your Supabase SQL Editor as specified in the implementation plan.`);
+    }
+
+    if (products.length === 0) {
+      console.log('Seeding initial products into Supabase database...');
+      const seedProducts = initialProducts.map(p => ({
+        id: p.id,
+        name: p.name,
+        brand: p.brand,
+        category: p.category,
+        price: Number(p.price),
+        mrp: Number(p.mrp),
+        rating: Number(p.rating || 4.5),
+        reviewsCount: Number(p.reviewsCount || 100),
+        imageColor: p.imageColor,
+        display: p.specs.display || '',
+        processor: p.specs.processor || '',
+        ram: p.specs.ram || '',
+        storage: p.specs.storage || '',
+        backCamera: p.specs.backCamera || '',
+        frontCamera: p.specs.frontCamera || '',
+        battery: p.specs.battery || '',
+        os: p.specs.os || '',
+        network: p.specs.network || '5G Supported',
+        weight: p.specs.weight || '',
+        features: p.features || [],
+        inStock: !!p.inStock
+      }));
+
+      const { error: insertProdError } = await supabase.from('products').insert(seedProducts);
+      if (insertProdError) console.error('Error seeding products:', insertProdError.message);
+    }
+
+    // 2. Seed coupons if empty
+    const { data: coupons, error: coupError } = await supabase.from('coupons').select('code').limit(1);
+    if (coupError) console.error('Error querying coupons:', coupError.message);
+    else if (coupons.length === 0) {
+      console.log('Seeding initial coupons...');
+      const initialCoupons = [
+        { code: 'SHREESHYAM', type: 'flat', value: 2500, minSubtotal: 50000, description: 'Flat ₹2,500 Off on orders above ₹50,000' },
+        { code: 'JSS10', type: 'percent', value: 10, minSubtotal: 0, description: '10% Off on all orders' },
+        { code: 'FIRSTBUY', type: 'flat', value: 1000, minSubtotal: 10000, description: 'Flat ₹1,000 Off on orders above ₹10,000' }
+      ];
+      const { error: insertCoupError } = await supabase.from('coupons').insert(initialCoupons);
+      if (insertCoupError) console.error('Error seeding coupons:', insertCoupError.message);
+    }
+
+    // 3. Seed bank offers if empty
+    const { data: bankOffers, error: bankError } = await supabase.from('bank_offers').select('id').limit(1);
+    if (bankError) console.error('Error querying bank offers:', bankError.message);
+    else if (bankOffers.length === 0) {
+      console.log('Seeding initial bank offers...');
+      const initialBankOffers = [
+        { id: 'HDFC', bank: 'HDFC Card EMI', desc: 'Flat ₹3,000 Instant Off', type: 'flat', value: 3000, maxDiscount: 3000 },
+        { id: 'ICICI', bank: 'ICICI Card', desc: '10% Cashback up to ₹2,500', type: 'percent', value: 10, maxDiscount: 2500 },
+        { id: 'SBI', bank: 'SBI Card', desc: 'Flat ₹1,500 Instant Discount', type: 'flat', value: 1500, maxDiscount: 1500 }
+      ];
+      const { error: insertBankError } = await supabase.from('bank_offers').insert(initialBankOffers);
+      if (insertBankError) console.error('Error seeding bank offers:', insertBankError.message);
+    }
+
+    // 4. Seed flash deal if empty
+    const { data: flashDeals, error: flashError } = await supabase.from('flash_deal').select('id').limit(1);
+    if (flashError) console.error('Error querying flash deal:', flashError.message);
+    else if (flashDeals.length === 0) {
+      console.log('Seeding initial flash deal...');
+      const { error: insertFlashError } = await supabase.from('flash_deal').insert([{
+        id: 'active',
+        product_id: 'xiaomi-14',
+        discount: 3500,
+        description: 'Take an extra ₹3,500 direct checkout discount on the acclaimed Xiaomi 14. Features the Leica professional optics system, Snapdragon 8 Gen 3 powerhouse chip, and lightning fast 90W charging.'
+      }]);
+      if (insertFlashError) console.error('Error seeding flash deal:', insertFlashError.message);
+    }
+
+    console.log('Supabase tables initialized and verified successfully.');
   } catch (err) {
-    // Column already exists or table doesn't exist yet
+    console.error('DATABASE INITIALIZATION ERROR:', err.message);
   }
-
-  // Seed products table if empty
-  const productCount = await db.get('SELECT COUNT(*) as count FROM products');
-  if (productCount.count === 0) {
-    console.log('Seeding initial products into SQLite database...');
-    for (const p of initialProducts) {
-      await db.run(`
-        INSERT INTO products (
-          id, name, brand, category, price, mrp, rating, reviewsCount, imageColor,
-          display, processor, ram, storage, backCamera, frontCamera, battery, os, network, weight,
-          features, inStock
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        p.id,
-        p.name,
-        p.brand,
-        p.category,
-        p.price,
-        p.mrp,
-        p.rating || 4.5,
-        p.reviewsCount || 100,
-        p.imageColor,
-        p.specs.display || '',
-        p.specs.processor || '',
-        p.specs.ram || '',
-        p.specs.storage || '',
-        p.specs.backCamera || '',
-        p.specs.frontCamera || '',
-        p.specs.battery || '',
-        p.specs.os || '',
-        p.specs.network || '5G Supported',
-        p.specs.weight || '',
-        JSON.stringify(p.features || []),
-        p.inStock ? 1 : 0
-      ]);
-    }
-  }
-
-  // Seed coupons table if empty
-  const couponCount = await db.get('SELECT COUNT(*) as count FROM coupons');
-  if (couponCount.count === 0) {
-    console.log('Seeding initial coupons...');
-    const initialCoupons = [
-      { code: 'SHREESHYAM', type: 'flat', value: 2500, minSubtotal: 50000, description: 'Flat ₹2,500 Off on orders above ₹50,000' },
-      { code: 'JSS10', type: 'percent', value: 10, minSubtotal: 0, description: '10% Off on all orders' },
-      { code: 'FIRSTBUY', type: 'flat', value: 1000, minSubtotal: 10000, description: 'Flat ₹1,000 Off on orders above ₹10,000' }
-    ];
-    for (const c of initialCoupons) {
-      await db.run(`
-        INSERT INTO coupons (code, type, value, minSubtotal, description)
-        VALUES (?, ?, ?, ?, ?)
-      `, [c.code, c.type, c.value, c.minSubtotal, c.description]);
-    }
-  }
-
-  // Seed bank_offers table if empty
-  const bankOfferCount = await db.get('SELECT COUNT(*) as count FROM bank_offers');
-  if (bankOfferCount.count === 0) {
-    console.log('Seeding initial bank offers...');
-    const initialBankOffers = [
-      { id: 'HDFC', bank: 'HDFC Card EMI', desc: 'Flat ₹3,000 Instant Off', type: 'flat', value: 3000, maxDiscount: 3000 },
-      { id: 'ICICI', bank: 'ICICI Card', desc: '10% Cashback up to ₹2,500', type: 'percent', value: 10, maxDiscount: 2500 },
-      { id: 'SBI', bank: 'SBI Card', desc: 'Flat ₹1,500 Instant Discount', type: 'flat', value: 1500, maxDiscount: 1500 }
-    ];
-    for (const b of initialBankOffers) {
-      await db.run(`
-        INSERT INTO bank_offers (id, bank, desc, type, value, maxDiscount)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [b.id, b.bank, b.desc, b.type, b.value, b.maxDiscount]);
-    }
-  }
-
-  // Seed flash_deal table if empty
-  const flashDealCount = await db.get('SELECT COUNT(*) as count FROM flash_deal');
-  if (flashDealCount.count === 0) {
-    console.log('Seeding initial flash deal of the week...');
-    await db.run(`
-      INSERT INTO flash_deal (id, product_id, discount, description)
-      VALUES (?, ?, ?, ?)
-    `, [
-      'active',
-      'xiaomi-14',
-      3500,
-      'Take an extra ₹3,500 direct checkout discount on the acclaimed Xiaomi 14. Features the Leica professional optics system, Snapdragon 8 Gen 3 powerhouse chip, and lightning fast 90W charging.'
-    ]);
-  }
-
-  console.log('SQLite database initialized and seeded successfully.');
 }
 
 // Start database
@@ -266,6 +153,7 @@ initDb().catch(err => {
 
 // Helper: map database row to client product object structure
 function mapProduct(row) {
+  if (!row) return null;
   return {
     id: row.id,
     name: row.name,
@@ -288,8 +176,8 @@ function mapProduct(row) {
       network: row.network,
       weight: row.weight
     },
-    features: JSON.parse(row.features),
-    inStock: row.inStock === 1
+    features: typeof row.features === 'string' ? JSON.parse(row.features) : row.features,
+    inStock: !!row.inStock
   };
 }
 
@@ -298,7 +186,10 @@ function mapProduct(row) {
 // 1. PRODUCTS ENDPOINTS
 app.get('/api/products', async (req, res) => {
   try {
-    const rows = await db.all('SELECT * FROM products');
+    const { data: rows, error } = await supabase
+      .from('products')
+      .select('*');
+    if (error) throw error;
     const products = rows.map(mapProduct);
     res.json(products);
   } catch (error) {
@@ -310,38 +201,38 @@ app.post('/api/products', async (req, res) => {
   try {
     const p = req.body;
     const specs = p.specs || {};
-    await db.run(`
-      INSERT INTO products (
-        id, name, brand, category, price, mrp, rating, reviewsCount, imageColor,
-        display, processor, ram, storage, backCamera, frontCamera, battery, os, network, weight,
-        features, inStock
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      p.id,
-      p.name,
-      p.brand,
-      p.category,
-      Number(p.price),
-      Number(p.mrp),
-      Number(p.rating || 4.5),
-      Number(p.reviewsCount || 100),
-      p.imageColor,
-      specs.display || '',
-      specs.processor || '',
-      specs.ram || '',
-      specs.storage || '',
-      specs.backCamera || '',
-      specs.frontCamera || '',
-      specs.battery || '',
-      specs.os || '',
-      specs.network || '5G Supported',
-      specs.weight || '',
-      JSON.stringify(p.features || []),
-      p.inStock ? 1 : 0
-    ]);
+    const productData = {
+      id: p.id,
+      name: p.name,
+      brand: p.brand,
+      category: p.category,
+      price: Number(p.price),
+      mrp: Number(p.mrp),
+      rating: Number(p.rating || 4.5),
+      reviewsCount: Number(p.reviewsCount || 100),
+      imageColor: p.imageColor,
+      display: specs.display || '',
+      processor: specs.processor || '',
+      ram: specs.ram || '',
+      storage: specs.storage || '',
+      backCamera: specs.backCamera || '',
+      frontCamera: specs.frontCamera || '',
+      battery: specs.battery || '',
+      os: specs.os || '',
+      network: specs.network || '5G Supported',
+      weight: specs.weight || '',
+      features: p.features || [],
+      inStock: !!p.inStock
+    };
 
-    const created = await db.get('SELECT * FROM products WHERE id = ?', [p.id]);
-    res.status(201).json(mapProduct(created));
+    const { data, error } = await supabase
+      .from('products')
+      .insert([productData])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(mapProduct(data));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -350,8 +241,13 @@ app.post('/api/products', async (req, res) => {
 app.put('/api/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const existing = await db.get('SELECT * FROM products WHERE id = ?', [id]);
-    if (!existing) {
+    const { data: existing, error: fetchError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !existing) {
       return res.status(404).json({ error: 'Product not found' });
     }
 
@@ -365,7 +261,6 @@ app.put('/api/products/:id', async (req, res) => {
       rating: body.rating !== undefined ? Number(body.rating) : existing.rating,
       reviewsCount: body.reviewsCount !== undefined ? Number(body.reviewsCount) : existing.reviewsCount,
       imageColor: body.imageColor !== undefined ? body.imageColor : existing.imageColor,
-      // specs fields
       display: (body.specs && body.specs.display !== undefined) ? body.specs.display : existing.display,
       processor: (body.specs && body.specs.processor !== undefined) ? body.specs.processor : existing.processor,
       ram: (body.specs && body.specs.ram !== undefined) ? body.specs.ram : existing.ram,
@@ -376,24 +271,18 @@ app.put('/api/products/:id', async (req, res) => {
       os: (body.specs && body.specs.os !== undefined) ? body.specs.os : existing.os,
       network: (body.specs && body.specs.network !== undefined) ? body.specs.network : existing.network,
       weight: (body.specs && body.specs.weight !== undefined) ? body.specs.weight : existing.weight,
-      // features & stock
-      features: body.features !== undefined ? JSON.stringify(body.features) : existing.features,
-      inStock: body.inStock !== undefined ? (body.inStock ? 1 : 0) : existing.inStock
+      features: body.features !== undefined ? body.features : existing.features,
+      inStock: body.inStock !== undefined ? !!body.inStock : !!existing.inStock
     };
 
-    await db.run(`
-      UPDATE products SET
-        name = ?, brand = ?, category = ?, price = ?, mrp = ?, rating = ?, reviewsCount = ?, imageColor = ?,
-        display = ?, processor = ?, ram = ?, storage = ?, backCamera = ?, frontCamera = ?, battery = ?, os = ?, network = ?, weight = ?,
-        features = ?, inStock = ?
-      WHERE id = ?
-    `, [
-      updated.name, updated.brand, updated.category, updated.price, updated.mrp, updated.rating, updated.reviewsCount, updated.imageColor,
-      updated.display, updated.processor, updated.ram, updated.storage, updated.backCamera, updated.frontCamera, updated.battery, updated.os, updated.network, updated.weight,
-      updated.features, updated.inStock, id
-    ]);
+    const { data: result, error: updateError } = await supabase
+      .from('products')
+      .update(updated)
+      .eq('id', id)
+      .select()
+      .single();
 
-    const result = await db.get('SELECT * FROM products WHERE id = ?', [id]);
+    if (updateError) throw updateError;
     res.json(mapProduct(result));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -403,7 +292,12 @@ app.put('/api/products/:id', async (req, res) => {
 app.delete('/api/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await db.run('DELETE FROM products WHERE id = ?', [id]);
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
     res.json({ success: true, message: `Product ${id} deleted.` });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -412,40 +306,43 @@ app.delete('/api/products/:id', async (req, res) => {
 
 app.post('/api/products/reset', async (req, res) => {
   try {
-    await db.run('DELETE FROM products');
-    for (const p of initialProducts) {
-      await db.run(`
-        INSERT INTO products (
-          id, name, brand, category, price, mrp, rating, reviewsCount, imageColor,
-          display, processor, ram, storage, backCamera, frontCamera, battery, os, network, weight,
-          features, inStock
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        p.id,
-        p.name,
-        p.brand,
-        p.category,
-        p.price,
-        p.mrp,
-        p.rating || 4.5,
-        p.reviewsCount || 100,
-        p.imageColor,
-        p.specs.display || '',
-        p.specs.processor || '',
-        p.specs.ram || '',
-        p.specs.storage || '',
-        p.specs.backCamera || '',
-        p.specs.frontCamera || '',
-        p.specs.battery || '',
-        p.specs.os || '',
-        p.specs.network || '5G Supported',
-        p.specs.weight || '',
-        JSON.stringify(p.features || []),
-        p.inStock ? 1 : 0
-      ]);
-    }
-    const rows = await db.all('SELECT * FROM products');
-    res.json(rows.map(mapProduct));
+    const { error: deleteError } = await supabase
+      .from('products')
+      .delete()
+      .neq('id', '');
+    if (deleteError) throw deleteError;
+
+    const seedProducts = initialProducts.map(p => ({
+      id: p.id,
+      name: p.name,
+      brand: p.brand,
+      category: p.category,
+      price: Number(p.price),
+      mrp: Number(p.mrp),
+      rating: Number(p.rating || 4.5),
+      reviewsCount: Number(p.reviewsCount || 100),
+      imageColor: p.imageColor,
+      display: p.specs.display || '',
+      processor: p.specs.processor || '',
+      ram: p.specs.ram || '',
+      storage: p.specs.storage || '',
+      backCamera: p.specs.backCamera || '',
+      frontCamera: p.specs.frontCamera || '',
+      battery: p.specs.battery || '',
+      os: p.specs.os || '',
+      network: p.specs.network || '5G Supported',
+      weight: p.specs.weight || '',
+      features: p.features || [],
+      inStock: !!p.inStock
+    }));
+
+    const { data, error: insertError } = await supabase
+      .from('products')
+      .insert(seedProducts)
+      .select();
+
+    if (insertError) throw insertError;
+    res.json(data.map(mapProduct));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -454,8 +351,11 @@ app.post('/api/products/reset', async (req, res) => {
 // 2. COUPONS ENDPOINTS
 app.get('/api/coupons', async (req, res) => {
   try {
-    const rows = await db.all('SELECT * FROM coupons');
-    res.json(rows);
+    const { data, error } = await supabase
+      .from('coupons')
+      .select('*');
+    if (error) throw error;
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -465,12 +365,20 @@ app.post('/api/coupons', async (req, res) => {
   try {
     const { code, type, value, minSubtotal, description } = req.body;
     const upperCode = code.toUpperCase();
-    await db.run(`
-      INSERT INTO coupons (code, type, value, minSubtotal, description)
-      VALUES (?, ?, ?, ?, ?)
-    `, [upperCode, type, Number(value), Number(minSubtotal || 0), description]);
-    const created = await db.get('SELECT * FROM coupons WHERE code = ?', [upperCode]);
-    res.status(201).json(created);
+    const couponData = {
+      code: upperCode,
+      type,
+      value: Number(value),
+      minSubtotal: Number(minSubtotal || 0),
+      description
+    };
+    const { data, error } = await supabase
+      .from('coupons')
+      .insert([couponData])
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -479,7 +387,11 @@ app.post('/api/coupons', async (req, res) => {
 app.delete('/api/coupons/:code', async (req, res) => {
   try {
     const { code } = req.params;
-    await db.run('DELETE FROM coupons WHERE code = ?', [code.toUpperCase()]);
+    const { error } = await supabase
+      .from('coupons')
+      .delete()
+      .eq('code', code.toUpperCase());
+    if (error) throw error;
     res.json({ success: true, message: `Coupon ${code} deleted.` });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -488,20 +400,24 @@ app.delete('/api/coupons/:code', async (req, res) => {
 
 app.post('/api/coupons/reset', async (req, res) => {
   try {
-    await db.run('DELETE FROM coupons');
+    const { error: deleteError } = await supabase
+      .from('coupons')
+      .delete()
+      .neq('code', '');
+    if (deleteError) throw deleteError;
+
     const initialCoupons = [
       { code: 'SHREESHYAM', type: 'flat', value: 2500, minSubtotal: 50000, description: 'Flat ₹2,500 Off on orders above ₹50,000' },
       { code: 'JSS10', type: 'percent', value: 10, minSubtotal: 0, description: '10% Off on all orders' },
       { code: 'FIRSTBUY', type: 'flat', value: 1000, minSubtotal: 10000, description: 'Flat ₹1,000 Off on orders above ₹10,000' }
     ];
-    for (const c of initialCoupons) {
-      await db.run(`
-        INSERT INTO coupons (code, type, value, minSubtotal, description)
-        VALUES (?, ?, ?, ?, ?)
-      `, [c.code, c.type, c.value, c.minSubtotal, c.description]);
-    }
-    const rows = await db.all('SELECT * FROM coupons');
-    res.json(rows);
+
+    const { data, error: insertError } = await supabase
+      .from('coupons')
+      .insert(initialCoupons)
+      .select();
+    if (insertError) throw insertError;
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -510,8 +426,11 @@ app.post('/api/coupons/reset', async (req, res) => {
 // 3. BANK OFFERS ENDPOINTS
 app.get('/api/bank-offers', async (req, res) => {
   try {
-    const rows = await db.all('SELECT * FROM bank_offers');
-    res.json(rows);
+    const { data, error } = await supabase
+      .from('bank_offers')
+      .select('*');
+    if (error) throw error;
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -521,12 +440,21 @@ app.post('/api/bank-offers', async (req, res) => {
   try {
     const { id, bank, desc, type, value, maxDiscount } = req.body;
     const upperId = id.toUpperCase();
-    await db.run(`
-      INSERT INTO bank_offers (id, bank, desc, type, value, maxDiscount)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [upperId, bank, desc, type, Number(value), maxDiscount ? Number(maxDiscount) : null]);
-    const created = await db.get('SELECT * FROM bank_offers WHERE id = ?', [upperId]);
-    res.status(201).json(created);
+    const offerData = {
+      id: upperId,
+      bank,
+      desc,
+      type,
+      value: Number(value),
+      maxDiscount: maxDiscount ? Number(maxDiscount) : null
+    };
+    const { data, error } = await supabase
+      .from('bank_offers')
+      .insert([offerData])
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -535,7 +463,11 @@ app.post('/api/bank-offers', async (req, res) => {
 app.delete('/api/bank-offers/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await db.run('DELETE FROM bank_offers WHERE id = ?', [id.toUpperCase()]);
+    const { error } = await supabase
+      .from('bank_offers')
+      .delete()
+      .eq('id', id.toUpperCase());
+    if (error) throw error;
     res.json({ success: true, message: `Bank offer ${id} deleted.` });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -545,8 +477,14 @@ app.delete('/api/bank-offers/:id', async (req, res) => {
 app.put('/api/bank-offers/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const existing = await db.get('SELECT * FROM bank_offers WHERE id = ?', [id.toUpperCase()]);
-    if (!existing) {
+    const upperId = id.toUpperCase();
+    const { data: existing, error: fetchError } = await supabase
+      .from('bank_offers')
+      .select('*')
+      .eq('id', upperId)
+      .single();
+
+    if (fetchError || !existing) {
       return res.status(404).json({ error: 'Bank offer not found' });
     }
 
@@ -559,13 +497,14 @@ app.put('/api/bank-offers/:id', async (req, res) => {
       maxDiscount: body.maxDiscount !== undefined ? (body.maxDiscount ? Number(body.maxDiscount) : null) : existing.maxDiscount
     };
 
-    await db.run(`
-      UPDATE bank_offers SET
-        bank = ?, desc = ?, type = ?, value = ?, maxDiscount = ?
-      WHERE id = ?
-    `, [updated.bank, updated.desc, updated.type, updated.value, updated.maxDiscount, id.toUpperCase()]);
+    const { data: result, error: updateError } = await supabase
+      .from('bank_offers')
+      .update(updated)
+      .eq('id', upperId)
+      .select()
+      .single();
 
-    const result = await db.get('SELECT * FROM bank_offers WHERE id = ?', [id.toUpperCase()]);
+    if (updateError) throw updateError;
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -574,20 +513,24 @@ app.put('/api/bank-offers/:id', async (req, res) => {
 
 app.post('/api/bank-offers/reset', async (req, res) => {
   try {
-    await db.run('DELETE FROM bank_offers');
+    const { error: deleteError } = await supabase
+      .from('bank_offers')
+      .delete()
+      .neq('id', '');
+    if (deleteError) throw deleteError;
+
     const initialBankOffers = [
       { id: 'HDFC', bank: 'HDFC Card EMI', desc: 'Flat ₹3,000 Instant Off', type: 'flat', value: 3000, maxDiscount: 3000 },
       { id: 'ICICI', bank: 'ICICI Card', desc: '10% Cashback up to ₹2,500', type: 'percent', value: 10, maxDiscount: 2500 },
       { id: 'SBI', bank: 'SBI Card', desc: 'Flat ₹1,500 Instant Discount', type: 'flat', value: 1500, maxDiscount: 1500 }
     ];
-    for (const b of initialBankOffers) {
-      await db.run(`
-        INSERT INTO bank_offers (id, bank, desc, type, value, maxDiscount)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [b.id, b.bank, b.desc, b.type, b.value, b.maxDiscount]);
-    }
-    const rows = await db.all('SELECT * FROM bank_offers');
-    res.json(rows);
+
+    const { data, error: insertError } = await supabase
+      .from('bank_offers')
+      .insert(initialBankOffers)
+      .select();
+    if (insertError) throw insertError;
+    res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -596,7 +539,14 @@ app.post('/api/bank-offers/reset', async (req, res) => {
 // 3.5 FLASH DEAL ENDPOINTS
 app.get('/api/flash-deal', async (req, res) => {
   try {
-    const deal = await db.get('SELECT * FROM flash_deal WHERE id = ?', ['active']);
+    const { data: deal, error } = await supabase
+      .from('flash_deal')
+      .select('*')
+      .eq('id', 'active')
+      .maybeSingle();
+
+    if (error) throw error;
+
     if (!deal) {
       return res.json({
         id: 'active',
@@ -614,11 +564,14 @@ app.get('/api/flash-deal', async (req, res) => {
 app.put('/api/flash-deal', async (req, res) => {
   try {
     const { product_id, discount, description } = req.body;
-    await db.run(`
-      UPDATE flash_deal SET product_id = ?, discount = ?, description = ?
-      WHERE id = ?
-    `, [product_id, Number(discount), description, 'active']);
-    const updated = await db.get('SELECT * FROM flash_deal WHERE id = ?', ['active']);
+    const { data: updated, error } = await supabase
+      .from('flash_deal')
+      .update({ product_id, discount: Number(discount), description })
+      .eq('id', 'active')
+      .select()
+      .single();
+
+    if (error) throw error;
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -627,17 +580,24 @@ app.put('/api/flash-deal', async (req, res) => {
 
 app.post('/api/flash-deal/reset', async (req, res) => {
   try {
-    await db.run('DELETE FROM flash_deal');
-    await db.run(`
-      INSERT INTO flash_deal (id, product_id, discount, description)
-      VALUES (?, ?, ?, ?)
-    `, [
-      'active',
-      'xiaomi-14',
-      3500,
-      'Take an extra ₹3,500 direct checkout discount on the acclaimed Xiaomi 14. Features the Leica professional optics system, Snapdragon 8 Gen 3 powerhouse chip, and lightning fast 90W charging.'
-    ]);
-    const resetDeal = await db.get('SELECT * FROM flash_deal WHERE id = ?', ['active']);
+    const { error: deleteError } = await supabase
+      .from('flash_deal')
+      .delete()
+      .eq('id', 'active');
+    if (deleteError) throw deleteError;
+
+    const { data: resetDeal, error: insertError } = await supabase
+      .from('flash_deal')
+      .insert([{
+        id: 'active',
+        product_id: 'xiaomi-14',
+        discount: 3500,
+        description: 'Take an extra ₹3,500 direct checkout discount on the acclaimed Xiaomi 14. Features the Leica professional optics system, Snapdragon 8 Gen 3 powerhouse chip, and lightning fast 90W charging.'
+      }])
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
     res.json(resetDeal);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -647,12 +607,13 @@ app.post('/api/flash-deal/reset', async (req, res) => {
 // 4. QUERIES (CALLBACKS & B2B QUOTES) ENDPOINTS
 app.get('/api/queries', async (req, res) => {
   try {
-    const rows = await db.all('SELECT * FROM queries ORDER BY date DESC');
-    const queries = rows.map(r => ({
-      ...r,
-      items: r.items ? JSON.parse(r.items) : null
-    }));
-    res.json(queries);
+    const { data: rows, error } = await supabase
+      .from('queries')
+      .select('*')
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+    res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -661,35 +622,33 @@ app.get('/api/queries', async (req, res) => {
 app.post('/api/queries', async (req, res) => {
   try {
     const q = req.body;
-    await db.run(`
-      INSERT INTO queries (
-        id, type, date, contactName, phone, email, subject, message,
-        companyName, gstNumber, deliveryDate, comments, items, totalVolume, netTotal, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      q.id,
-      q.type,
-      q.date,
-      q.contactName,
-      q.phone,
-      q.email,
-      q.subject || null,
-      q.message || null,
-      q.companyName || null,
-      q.gstNumber || null,
-      q.deliveryDate || null,
-      q.comments || null,
-      q.items ? JSON.stringify(q.items) : null,
-      Number(q.totalVolume || 0),
-      Number(q.netTotal || 0.0),
-      q.status || 'Pending'
-    ]);
+    const queryData = {
+      id: q.id,
+      type: q.type,
+      date: q.date,
+      contactName: q.contactName,
+      phone: q.phone,
+      email: q.email,
+      subject: q.subject || null,
+      message: q.message || null,
+      companyName: q.companyName || null,
+      gstNumber: q.gstNumber || null,
+      deliveryDate: q.deliveryDate || null,
+      comments: q.comments || null,
+      items: q.items || null,
+      totalVolume: Number(q.totalVolume || 0),
+      netTotal: Number(q.netTotal || 0.0),
+      status: q.status || 'Pending'
+    };
 
-    const created = await db.get('SELECT * FROM queries WHERE id = ?', [q.id]);
-    res.status(201).json({
-      ...created,
-      items: created.items ? JSON.parse(created.items) : null
-    });
+    const { data, error } = await supabase
+      .from('queries')
+      .insert([queryData])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -698,7 +657,12 @@ app.post('/api/queries', async (req, res) => {
 app.delete('/api/queries/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await db.run('DELETE FROM queries WHERE id = ?', [id]);
+    const { error } = await supabase
+      .from('queries')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
     res.json({ success: true, message: `Query ${id} deleted.` });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -707,7 +671,11 @@ app.delete('/api/queries/:id', async (req, res) => {
 
 app.post('/api/queries/reset', async (req, res) => {
   try {
-    await db.run('DELETE FROM queries');
+    const { error } = await supabase
+      .from('queries')
+      .delete()
+      .neq('id', '');
+    if (error) throw error;
     res.json([]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -717,12 +685,13 @@ app.post('/api/queries/reset', async (req, res) => {
 // 5. ORDERS ENDPOINTS
 app.get('/api/orders', async (req, res) => {
   try {
-    const rows = await db.all('SELECT * FROM orders ORDER BY date DESC');
-    const orders = rows.map(r => ({
-      ...r,
-      items: JSON.parse(r.items)
-    }));
-    res.json(orders);
+    const { data: rows, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+    res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -737,33 +706,31 @@ app.post('/api/orders', async (req, res) => {
     const customerAddress = o.customerAddress || (o.customer && o.customer.address) || '';
     const customerPincode = o.customerPincode || (o.customer && o.customer.pincode) || '';
 
-    await db.run(`
-      INSERT INTO orders (
-        id, date, items, subtotal, couponDiscount, bankDiscount, total,
-        customerName, customerPhone, customerEmail, customerAddress, customerPincode, paymentMethod, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      o.id,
-      o.date,
-      JSON.stringify(o.items),
-      Number(o.subtotal),
-      Number(o.couponDiscount || 0),
-      Number(o.bankDiscount || 0),
-      Number(o.total),
+    const orderData = {
+      id: o.id,
+      date: o.date,
+      items: o.items,
+      subtotal: Number(o.subtotal),
+      couponDiscount: Number(o.couponDiscount || 0),
+      bankDiscount: Number(o.bankDiscount || 0),
+      total: Number(o.total),
       customerName,
       customerPhone,
       customerEmail,
       customerAddress,
       customerPincode,
-      o.paymentMethod,
-      o.status || 'Placed'
-    ]);
+      paymentMethod: o.paymentMethod,
+      status: o.status || 'Placed'
+    };
 
-    const created = await db.get('SELECT * FROM orders WHERE id = ?', [o.id]);
-    res.status(201).json({
-      ...created,
-      items: JSON.parse(created.items)
-    });
+    const { data, error } = await supabase
+      .from('orders')
+      .insert([orderData])
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.status(201).json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -772,7 +739,6 @@ app.post('/api/orders', async (req, res) => {
 // 6. STRIPE PAYMENT INTENT ENDPOINT (SIMULATION / SANDBOX PRE-REQUISITE)
 app.post('/api/create-payment-intent', async (req, res) => {
   try {
-    const { amount, currency, metadata } = req.body;
     const clientSecret = `pi_mock_${Date.now()}_secret_${Math.random().toString(36).substring(2, 15)}`;
     res.status(200).send({
       clientSecret: clientSecret
@@ -838,7 +804,7 @@ app.post('/api/razorpay/verify-payment', async (req, res) => {
   }
 });
 
-// Helper function to save orders inside SQLite
+// Helper function to save orders inside Supabase
 async function saveVerifiedOrder(order, paymentMethod) {
   const customerName = order.customerName || (order.customer && order.customer.name) || 'Guest Customer';
   const customerPhone = order.customerPhone || (order.customer && order.customer.phone) || '';
@@ -846,27 +812,28 @@ async function saveVerifiedOrder(order, paymentMethod) {
   const customerAddress = order.customerAddress || (order.customer && order.customer.address) || '';
   const customerPincode = order.customerPincode || (order.customer && order.customer.pincode) || '';
   
-  await db.run(`
-    INSERT INTO orders (
-      id, date, items, subtotal, couponDiscount, bankDiscount, total,
-      customerName, customerPhone, customerEmail, customerAddress, customerPincode, paymentMethod, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `, [
-    order.id,
-    order.date,
-    JSON.stringify(order.items),
-    Number(order.subtotal),
-    Number(order.couponDiscount || 0),
-    Number(order.bankDiscount || 0),
-    Number(order.total),
+  const orderData = {
+    id: order.id,
+    date: order.date,
+    items: order.items,
+    subtotal: Number(order.subtotal),
+    couponDiscount: Number(order.couponDiscount || 0),
+    bankDiscount: Number(order.bankDiscount || 0),
+    total: Number(order.total),
     customerName,
     customerPhone,
     customerEmail,
     customerAddress,
     customerPincode,
     paymentMethod,
-    'Paid'
-  ]);
+    status: 'Paid'
+  };
+
+  const { error } = await supabase
+    .from('orders')
+    .insert([orderData]);
+
+  if (error) throw error;
 }
 
 // 7. USER AUTHENTICATION & PROFILE ENDPOINTS
@@ -877,16 +844,36 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Name, email, phone, and password are required.' });
     }
     const normalizedEmail = email.trim().toLowerCase();
-    const existing = await db.get('SELECT * FROM users WHERE email = ?', [normalizedEmail]);
+    
+    const { data: existing, error: searchError } = await supabase
+      .from('users')
+      .select('email')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (searchError) throw searchError;
     if (existing) {
       return res.status(400).json({ error: 'An account with this email already exists.' });
     }
+
     const userId = `user-${Date.now()}`;
-    await db.run(`
-      INSERT INTO users (id, name, email, phone, password, address, pincode)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [userId, name.trim(), normalizedEmail, phone.trim(), password, address ? address.trim() : null, pincode ? pincode.trim() : null]);
-    const created = await db.get('SELECT id, name, email, phone, address, pincode FROM users WHERE id = ?', [userId]);
+    const userData = {
+      id: userId,
+      name: name.trim(),
+      email: normalizedEmail,
+      phone: phone.trim(),
+      password,
+      address: address ? address.trim() : null,
+      pincode: pincode ? pincode.trim() : null
+    };
+
+    const { data: created, error: insertError } = await supabase
+      .from('users')
+      .insert([userData])
+      .select('id, name, email, phone, address, pincode')
+      .single();
+
+    if (insertError) throw insertError;
     res.status(201).json(created);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -900,11 +887,19 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required.' });
     }
     const normalizedEmail = email.trim().toLowerCase();
-    const user = await db.get('SELECT * FROM users WHERE email = ?', [normalizedEmail]);
+    
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (error) throw error;
     if (!user || user.password !== password) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
-    const { password: _, ...safeUser } = user;
+    const safeUser = { ...user };
+    delete safeUser.password;
     res.json(safeUser);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -915,22 +910,33 @@ app.put('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, phone, address, pincode } = req.body;
-    const existing = await db.get('SELECT * FROM users WHERE id = ?', [id]);
-    if (!existing) {
+    
+    const { data: existing, error: fetchError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError || !existing) {
       return res.status(404).json({ error: 'User not found.' });
     }
-    await db.run(`
-      UPDATE users SET name = ?, phone = ?, address = ?, pincode = ?
-      WHERE id = ?
-    `, [
-      name !== undefined ? name.trim() : existing.name,
-      phone !== undefined ? phone.trim() : existing.phone,
-      address !== undefined ? address.trim() : existing.address,
-      pincode !== undefined ? pincode.trim() : existing.pincode,
-      id
-    ]);
-    const updated = await db.get('SELECT id, name, email, phone, address, pincode FROM users WHERE id = ?', [id]);
-    res.json(updated);
+
+    const updated = {
+      name: name !== undefined ? name.trim() : existing.name,
+      phone: phone !== undefined ? phone.trim() : existing.phone,
+      address: address !== undefined ? address.trim() : existing.address,
+      pincode: pincode !== undefined ? pincode.trim() : existing.pincode
+    };
+
+    const { data: result, error: updateError } = await supabase
+      .from('users')
+      .update(updated)
+      .eq('id', id)
+      .select('id, name, email, phone, address, pincode')
+      .single();
+
+    if (updateError) throw updateError;
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -939,12 +945,14 @@ app.put('/api/users/:id', async (req, res) => {
 app.get('/api/users/:email/orders', async (req, res) => {
   try {
     const { email } = req.params;
-    const rows = await db.all('SELECT * FROM orders WHERE LOWER(customerEmail) = ? ORDER BY date DESC', [email.trim().toLowerCase()]);
-    const orders = rows.map(r => ({
-      ...r,
-      items: JSON.parse(r.items)
-    }));
-    res.json(orders);
+    const { data: rows, error } = await supabase
+      .from('orders')
+      .select('*')
+      .ilike('customerEmail', email.trim().toLowerCase())
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+    res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -955,16 +963,18 @@ app.put('/api/orders/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    const existing = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
-    if (!existing) {
+    
+    const { data: updated, error } = await supabase
+      .from('orders')
+      .update({ status })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
       return res.status(404).json({ error: 'Order not found.' });
     }
-    await db.run('UPDATE orders SET status = ? WHERE id = ?', [status, id]);
-    const updated = await db.get('SELECT * FROM orders WHERE id = ?', [id]);
-    res.json({
-      ...updated,
-      items: JSON.parse(updated.items)
-    });
+    res.json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -973,7 +983,12 @@ app.put('/api/orders/:id/status', async (req, res) => {
 app.delete('/api/orders/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await db.run('DELETE FROM orders WHERE id = ?', [id]);
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
     res.json({ success: true, message: `Order ${id} deleted successfully.` });
   } catch (error) {
     res.status(500).json({ error: error.message });
