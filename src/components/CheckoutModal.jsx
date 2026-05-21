@@ -90,6 +90,10 @@ export default function CheckoutModal({ isOpen, onClose }) {
 
   useEffect(() => {
     if (isOpen) {
+      if (!currentUser) {
+        onClose();
+        return;
+      }
       loadRazorpayScript();
       setStep('shipping');
       setCheckoutBank('');
@@ -101,31 +105,19 @@ export default function CheckoutModal({ isOpen, onClose }) {
       setProcessingText('Connecting to secure banking portals to authorize your purchase. Please do not close this window.');
       // Reset card state
       setCardForm({ number: '', expiry: '', cvv: '', name: '' });
-
+      
       // Pre-fill shipping form if user logged in
-      if (currentUser) {
-        setShippingForm({
-          name: currentUser.name || '',
-          email: currentUser.email || '',
-          phone: currentUser.phone || '',
-          address: currentUser.address || '',
-          pincode: currentUser.pincode || '',
-          city: 'New Delhi',
-          state: 'Delhi'
-        });
-      } else {
-        setShippingForm({
-          name: '',
-          email: '',
-          phone: '',
-          address: '',
-          pincode: '',
-          city: 'New Delhi',
-          state: 'Delhi'
-        });
-      }
+      setShippingForm({
+        name: currentUser.name || '',
+        email: currentUser.email || '',
+        phone: currentUser.phone || '',
+        address: currentUser.address || '',
+        pincode: currentUser.pincode || '',
+        city: 'New Delhi',
+        state: 'Delhi'
+      });
     }
-  }, [isOpen, currentUser]);
+  }, [isOpen, currentUser, onClose]);
 
   if (!isOpen) return null;
 

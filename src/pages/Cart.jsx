@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useShop } from '../context/ShopContext';
-import { Trash2, Plus, Minus, ShoppingBag, CreditCard, MapPin, Tag } from 'lucide-react';
+import { Trash2, Plus, Minus, ShoppingBag, CreditCard, MapPin, Tag, Lock } from 'lucide-react';
 import CheckoutModal from '../components/CheckoutModal';
 
 export default function Cart() {
@@ -11,10 +11,12 @@ export default function Cart() {
     navigateTo,
     appliedCoupon,
     applyCoupon,
-    removeCoupon
+    removeCoupon,
+    currentUser
   } = useShop();
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   
   // Delivery Pincode Simulator
   const [pincode, setPincode] = useState('');
@@ -270,7 +272,13 @@ export default function Cart() {
 
             <button 
               className="btn btn-primary" 
-              onClick={() => setCheckoutOpen(true)}
+              onClick={() => {
+                if (!currentUser) {
+                  setShowLoginModal(true);
+                } else {
+                  setCheckoutOpen(true);
+                }
+              }}
               style={{ width: '100%', gap: '10px' }}
             >
               <CreditCard size={18} />
@@ -280,6 +288,74 @@ export default function Cart() {
         </div>
 
       </div>
+
+      {/* Stopper Modal: Login Required */}
+      {showLoginModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-secondary)',
+            borderRadius: 'var(--border-radius-lg)',
+            border: '2px solid var(--border-color)',
+            boxShadow: 'var(--shadow-xl)',
+            padding: '32px',
+            maxWidth: '420px',
+            width: '90%',
+            textAlign: 'center',
+            position: 'relative'
+          }}>
+            <div style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              color: 'var(--accent-danger)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px auto'
+            }}>
+              <Lock size={32} />
+            </div>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '12px', color: 'var(--text-primary)' }}>
+              Login Required
+            </h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: '1.6', marginBottom: '28px' }}>
+              To place an order or complete checkout, you must be logged in. Please sign in to your account or register a new one to continue.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button 
+                className="btn btn-primary"
+                onClick={() => {
+                  setShowLoginModal(false);
+                  navigateTo('account');
+                }}
+                style={{ width: '100%', justifyContent: 'center', gap: '8px' }}
+              >
+                Log In / Sign Up
+              </button>
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setShowLoginModal(false)}
+                style={{ width: '100%', justifyContent: 'center' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Checkout Gateway Modal */}
       <CheckoutModal isOpen={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
