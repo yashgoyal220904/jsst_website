@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useShop } from '../context/ShopContext';
-import { ShoppingCart, FileText, Scale, Search, Sun, Moon, Phone, User } from 'lucide-react';
+import { ShoppingCart, FileText, Scale, Search, Sun, Moon, Phone, User, Menu, X } from 'lucide-react';
 
 export default function Navbar() {
   const {
@@ -16,6 +16,8 @@ export default function Navbar() {
     currentUser
   } = useShop();
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
   const quoteCount = quoteItems.length;
 
@@ -26,11 +28,16 @@ export default function Navbar() {
     }
   };
 
+  const handleNavClick = (page) => {
+    navigateTo(page);
+    setMobileMenuOpen(false);
+  };
+
   return (
     <header className="navbar-sticky no-print">
       <div className="container navbar-container">
         {/* Brand Logo */}
-        <div className="logo" onClick={() => navigateTo('home')} style={{ cursor: 'pointer' }}>
+        <div className="logo" onClick={() => handleNavClick('home')} style={{ cursor: 'pointer' }}>
           <span style={{ color: 'var(--accent-primary)' }}>📱</span>
           <span>JAI SHREE SHYAM <span className="gold-gradient-text">TRADERS</span></span>
         </div>
@@ -47,18 +54,18 @@ export default function Navbar() {
           />
         </div>
 
-        {/* Action icons & links */}
-        <div className="nav-links">
+        {/* Action links */}
+        <div className={`nav-links ${mobileMenuOpen ? 'open' : ''}`}>
           <button 
             className={`nav-link ${activePage === 'home' ? 'active' : ''}`}
-            onClick={() => navigateTo('home')}
+            onClick={() => handleNavClick('home')}
           >
             Home
           </button>
           
           <button 
             className={`nav-link ${activePage === 'catalog' ? 'active' : ''}`}
-            onClick={() => navigateTo('catalog')}
+            onClick={() => handleNavClick('catalog')}
           >
             Mobiles
           </button>
@@ -66,7 +73,7 @@ export default function Navbar() {
           {/* Wholesale quote builder link */}
           <button 
             className={`nav-link ${activePage === 'wholesale' ? 'active' : ''}`}
-            onClick={() => navigateTo('wholesale')}
+            onClick={() => handleNavClick('wholesale')}
             style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
           >
             <span style={{ color: 'var(--accent-gold)' }}>★</span> Wholesale
@@ -76,7 +83,7 @@ export default function Navbar() {
           {compareItems.length > 0 && (
             <button 
               className={`nav-link ${activePage === 'compare' ? 'active' : ''}`}
-              onClick={() => navigateTo('compare')}
+              onClick={() => handleNavClick('compare')}
               style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
             >
               <Scale size={16} style={{ color: 'var(--accent-primary)' }} />
@@ -93,13 +100,16 @@ export default function Navbar() {
           {/* Customer Account Portal */}
           <button 
             className={`nav-link ${activePage === 'account' ? 'active' : ''}`}
-            onClick={() => navigateTo('account')}
+            onClick={() => handleNavClick('account')}
             style={{ display: 'flex', alignItems: 'center', gap: '5px' }}
           >
             <User size={15} style={{ color: currentUser ? 'var(--accent-success)' : 'inherit' }} />
             <span>{currentUser ? currentUser.name.split(' ')[0] : 'Sign In'}</span>
           </button>
+        </div>
 
+        {/* Navbar Action Icons */}
+        <div className="nav-actions">
           {/* Light/Dark Toggle */}
           <button 
             className="btn-icon" 
@@ -112,7 +122,7 @@ export default function Navbar() {
           {/* Wholesale Quote basket icon */}
           <button 
             className="btn-icon quote-icon-wrapper" 
-            onClick={() => navigateTo('wholesale')}
+            onClick={() => handleNavClick('wholesale')}
             title="Wholesale Quotation Request"
             style={{ borderColor: quoteCount > 0 ? 'var(--accent-gold)' : 'var(--border-color)' }}
           >
@@ -123,12 +133,22 @@ export default function Navbar() {
           {/* Cart basket icon */}
           <button 
             className="btn-icon cart-icon-wrapper" 
-            onClick={() => navigateTo('cart')}
+            onClick={() => handleNavClick('cart')}
             title="Shopping Cart"
             style={{ borderColor: cartCount > 0 ? 'var(--accent-primary)' : 'var(--border-color)' }}
           >
             <ShoppingCart size={18} style={{ color: cartCount > 0 ? 'var(--accent-primary)' : 'inherit' }} />
             {cartCount > 0 && <span className="cart-count">{cartCount}</span>}
+          </button>
+
+          {/* Mobile hamburger menu toggle */}
+          <button 
+            className="hamburger-toggle" 
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            title={mobileMenuOpen ? "Close Menu" : "Open Menu"}
+            aria-label="Toggle Navigation Menu"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
       </div>

@@ -593,7 +593,7 @@ Click "OK" to Approve or "Cancel" to Decline.`);
         {/* --- STEP 1: Shipping Details --- */}
         {step === 'shipping' && (
           <form onSubmit={submitShipping} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="grid-responsive-2col">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Full Name *</label>
                 <input
@@ -642,7 +642,7 @@ Click "OK" to Approve or "Cancel" to Decline.`);
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="grid-responsive-2col">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Pincode *</label>
                 <input
@@ -684,7 +684,7 @@ Click "OK" to Approve or "Cancel" to Decline.`);
         {step === 'payment' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             {/* Payment Method Selector Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
+            <div className="grid-responsive-4col">
               <button
                 className={`btn ${paymentMethod === 'upi' ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => { setPaymentMethod('upi'); setCheckoutBank(''); }}
@@ -1070,7 +1070,7 @@ Click "OK" to Approve or "Cancel" to Decline.`);
               ) : (
                 <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <h3 style={{ fontSize: '1.05rem' }}>Select Bank</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="grid-responsive-bank">
                     {['State Bank of India', 'HDFC Bank', 'ICICI Bank', 'Axis Bank'].map(bank => (
                       <button key={bank} className="btn btn-secondary" onClick={triggerPaymentSimulation} style={{ fontSize: '0.85rem', padding: '12px' }}>
                         🏦 {bank}
@@ -1168,7 +1168,7 @@ Click "OK" to Approve or "Cancel" to Decline.`);
 
             {/* Merchant and Amount Info Panel */}
             <div className="glass-panel" style={{ background: 'var(--bg-primary)', padding: '16px', border: '1px solid var(--border-color)', borderRadius: 'var(--border-radius-sm)', marginBottom: '20px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '8px', fontSize: '0.8rem' }}>
+              <div className="grid-responsive-receipt">
                 <div style={{ color: 'var(--text-secondary)' }}>Merchant:</div>
                 <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Jai Shree Shyam Traders</div>
 

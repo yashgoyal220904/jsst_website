@@ -104,7 +104,7 @@ export default function Wholesale() {
         <p style={{ color: 'var(--text-secondary)' }}>Review quantities and customize your dealer profile to build an official PDF quote.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1.1fr', gap: '32px', alignItems: 'start' }}>
+      <div className="wholesale-layout-grid">
         
         {/* Left Side: Wholesale items list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

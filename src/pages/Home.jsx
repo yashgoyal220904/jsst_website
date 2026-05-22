@@ -347,16 +347,12 @@ export default function Home() {
       </section>
 
       {/* 5. WEEKLY FLASH SALE PANEL WITH COUNTDOWN */}
-      <section className="glass-panel" style={{
+      <section className="glass-panel home-flash-grid" style={{
         background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(17, 24, 39, 0.95) 100%)',
         border: '1px solid rgba(239, 68, 68, 0.3)',
         padding: '36px',
         borderRadius: 'var(--border-radius-lg)',
-        marginBottom: '64px',
-        display: 'grid',
-        gridTemplateColumns: '1.2fr 1fr',
-        gap: '40px',
-        alignItems: 'center'
+        marginBottom: '64px'
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
@@ -528,16 +524,12 @@ export default function Home() {
       </section>
 
       {/* 8. QUICK CALLBACK & CONTACT INQUIRY SECTION */}
-      <section className="glass-panel" style={{
+      <section className="glass-panel home-callback-grid" style={{
         background: 'var(--bg-secondary)',
         border: '1px solid var(--border-color)',
         padding: '40px',
         borderRadius: 'var(--border-radius-lg)',
-        marginTop: '64px',
-        display: 'grid',
-        gridTemplateColumns: '1fr 1.2fr',
-        gap: '48px',
-        alignItems: 'center'
+        marginTop: '64px'
       }}>
         <div>
           <span className="badge badge-blue" style={{ marginBottom: '12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
@@ -583,7 +575,7 @@ export default function Home() {
               </div>
             )}
             
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="grid-responsive-2col">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Your Name *</label>
                 <input
@@ -607,7 +599,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+            <div className="grid-responsive-2col">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Email Address</label>
                 <input

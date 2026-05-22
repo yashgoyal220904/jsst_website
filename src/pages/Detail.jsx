@@ -355,7 +355,7 @@ export default function Detail() {
       </div>
 
       {/* Interactive Widgets: Exchange and EMI Installments */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginBottom: '64px' }}>
+      <div className="detail-widgets-grid">
         
         {/* Widget 1: Mobile Exchange-in Calculator */}
         <div className="glass-panel" style={{ padding: '32px', border: '1px solid var(--border-color)' }}>

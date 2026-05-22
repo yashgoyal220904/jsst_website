@@ -85,7 +85,7 @@ export default function Cart() {
     <div className="container animate-fade-in" style={{ paddingBottom: '64px', paddingTop: '24px' }}>
       <h1 style={{ fontSize: '2.2rem', fontWeight: 800, marginBottom: '32px' }}>Shopping Cart ({cart.length} items)</h1>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr', gap: '32px', alignItems: 'start' }}>
+      <div className="cart-layout-grid">
         
         {/* Cart Items List */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
