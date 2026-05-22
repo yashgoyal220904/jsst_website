@@ -871,7 +871,7 @@ app.post('/api/auth/register', async (req, res) => {
       .eq('email', normalizedEmail)
       .maybeSingle();
 
-    if (searchError) throw searchError;
+    if (searchError) throw new Error(searchError.message);
     if (existing) {
       return res.status(400).json({ error: 'An account with this email already exists.' });
     }
@@ -893,7 +893,7 @@ app.post('/api/auth/register', async (req, res) => {
       .select('id, name, email, phone, address, pincode')
       .single();
 
-    if (insertError) throw insertError;
+    if (insertError) throw new Error(insertError.message);
     res.status(201).json(created);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -914,7 +914,7 @@ app.post('/api/auth/login', async (req, res) => {
       .eq('email', normalizedEmail)
       .maybeSingle();
 
-    if (error) throw error;
+    if (error) throw new Error(error.message);
     if (!user || user.password !== password) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
@@ -1028,6 +1028,14 @@ app.use((req, res, next) => {
     if (err) {
       res.status(404).send('Not Found');
     }
+  });
+});
+
+// Global error handling middleware to ensure API responses are always JSON
+app.use((err, req, res, next) => {
+  console.error('Unhandled server error:', err);
+  res.status(500).json({
+    error: err?.message || 'An unexpected server error occurred.'
   });
 });
 
