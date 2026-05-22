@@ -45,18 +45,37 @@ const razorpay = new Razorpay({
 app.use(cors());
 app.use(express.json());
 
-// Initialize Supabase client connection
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('your-project-id')) {
-  console.warn('WARNING: Supabase URL or Anon Key is not configured correctly in .env.');
+const isSupabaseConfigured = !!(
+  supabaseUrl &&
+  supabaseAnonKey &&
+  !supabaseUrl.includes('your-project-id') &&
+  supabaseAnonKey !== 'your-anon-public-api-key'
+);
+
+if (!isSupabaseConfigured) {
+  console.warn('WARNING: Supabase URL or Anon Key is not configured correctly. Using placeholder client to prevent startup crash.');
 }
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabase = createClient(
+  isSupabaseConfigured ? supabaseUrl : 'https://placeholder-project-id.supabase.co',
+  isSupabaseConfigured ? supabaseAnonKey : 'placeholder-anon-key'
+);
+
+// Middleware to verify Supabase configuration
+app.use('/api', (req, res, next) => {
+  if (!isSupabaseConfigured) {
+    return res.status(503).json({
+      error: 'Supabase database is not configured. Please set the SUPABASE_URL and SUPABASE_ANON_KEY environment variables.'
+    });
+  }
+  next();
+});
 
 async function initDb() {
-  if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('your-project-id')) {
+  if (!isSupabaseConfigured) {
     console.warn('WARNING: Skipping Supabase initialization because credentials are not set.');
     return;
   }

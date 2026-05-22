@@ -344,12 +344,18 @@ export const ShopProvider = ({ children }) => {
         localStorage.setItem('jss_customer_user', JSON.stringify(data));
         return { success: true, user: data };
       } else {
-        const errData = await res.json();
-        return { success: false, msg: errData.error || 'Registration failed' };
+        let msg = 'Registration failed';
+        try {
+          const errData = await res.json();
+          msg = errData.error || msg;
+        } catch (_) {
+          msg = `Server Error (${res.status}): ${res.statusText || 'Unable to parse error response'}`;
+        }
+        return { success: false, msg };
       }
     } catch (err) {
       console.error('Registration error:', err);
-      return { success: false, msg: 'Network error occurred during registration.' };
+      return { success: false, msg: 'Network error occurred during registration. Please check your connection and try again.' };
     }
   };
 
@@ -366,12 +372,18 @@ export const ShopProvider = ({ children }) => {
         localStorage.setItem('jss_customer_user', JSON.stringify(data));
         return { success: true, user: data };
       } else {
-        const errData = await res.json();
-        return { success: false, msg: errData.error || 'Invalid email or password' };
+        let msg = 'Invalid email or password';
+        try {
+          const errData = await res.json();
+          msg = errData.error || msg;
+        } catch (_) {
+          msg = `Server Error (${res.status}): ${res.statusText || 'Unable to parse error response'}`;
+        }
+        return { success: false, msg };
       }
     } catch (err) {
       console.error('Login error:', err);
-      return { success: false, msg: 'Network error occurred during login.' };
+      return { success: false, msg: 'Network error occurred during login. Please check your connection and try again.' };
     }
   };
 
@@ -394,12 +406,18 @@ export const ShopProvider = ({ children }) => {
         localStorage.setItem('jss_customer_user', JSON.stringify(updated));
         return { success: true, user: updated };
       } else {
-        const errData = await res.json();
-        return { success: false, msg: errData.error || 'Failed to update profile' };
+        let msg = 'Failed to update profile';
+        try {
+          const errData = await res.json();
+          msg = errData.error || msg;
+        } catch (_) {
+          msg = `Server Error (${res.status}): ${res.statusText || 'Unable to parse error response'}`;
+        }
+        return { success: false, msg };
       }
     } catch (err) {
       console.error('Profile update error:', err);
-      return { success: false, msg: 'Network error occurred during profile update.' };
+      return { success: false, msg: 'Network error occurred during profile update. Please check your connection and try again.' };
     }
   };
 
